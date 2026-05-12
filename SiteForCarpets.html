@@ -1463,7 +1463,16 @@ const products = [
 ];
 
 
-let cart = [];
+let cart = (function() {
+  try {
+    var saved = localStorage.getItem('kovyor_cart');
+    return saved ? JSON.parse(saved) : [];
+  } catch(e) { return []; }
+})();
+
+function saveCart() {
+  try { localStorage.setItem('kovyor_cart', JSON.stringify(cart)); } catch(e) {}
+}
 
 function showPage(name, e) {
   if (e) e.preventDefault();
@@ -1497,7 +1506,7 @@ function renderProducts(filter, containerId) {
     card.className = 'card';
     let opts = '';
     p.sizes.forEach(function(s, idx) {
-      opts += '<option value="' + idx + '">' + s + ' - EUR' + p.sizePrice[idx].toLocaleString() + '</option>';
+      opts += '<option value="' + idx + '">' + s + ' — €' + p.sizePrice[idx].toLocaleString() + '</option>';
     });
     const badgeHtml = p.badge ? '<div class="card-badge">' + p.badge + '</div>' : '';
     card.innerHTML =
@@ -1527,7 +1536,7 @@ function updateCardPrice(id, prefix) {
   if (!sel || !p) return;
   const price = p.sizePrice[sel.selectedIndex] || p.price;
   const el = document.getElementById('price-' + prefix + id);
-  if (el) el.innerHTML = 'EUR' + price.toLocaleString() + ' <span class="unit">/ piece</span>';
+  if (el) el.innerHTML = '€' + price.toLocaleString() + ' <span class="unit">/ piece</span>';
 }
 
 function filterProducts(cat, btn) {
@@ -1549,6 +1558,7 @@ function addToCart(id, prefix) {
   else { cart.push({ key: key, id: product.id, name: product.name, image: product.image, size: product.sizes[sizeIdx], price: product.sizePrice[sizeIdx], qty: 1 }); }
   const btn = document.getElementById('btn-' + prefix + id);
   if (btn) { btn.textContent = 'Added'; btn.classList.add('added'); setTimeout(function() { btn.textContent = 'Add to Cart'; btn.classList.remove('added'); }, 1800); }
+  saveCart();
   updateCartUI();
   showToast(product.name + ' added to cart');
 }
@@ -1565,6 +1575,7 @@ function updateCartUI() {
   foot.style.display = 'block';
   let html = '';
   cart.forEach(function(item) {
+    var safeKey = item.key.replace(/&/g,'&amp;').replace(/"/g,'&quot;');
     html += '<div class="cart-item">' +
       '<img src="' + item.image + '" alt="' + item.name + '">' +
       '<div class="cart-item-info">' +
@@ -1572,24 +1583,34 @@ function updateCartUI() {
         '<div class="cart-item-meta">' + item.size + '</div>' +
         '<div class="cart-item-actions">' +
           '<div class="qty-control">' +
-            '<button class="qty-btn" onclick="changeQty(' + JSON.stringify(item.key) + ',-1)">-</button>' +
+            '<button class="qty-btn" data-key="' + safeKey + '" data-delta="-1">−</button>' +
             '<span class="qty-num">' + item.qty + '</span>' +
-            '<button class="qty-btn" onclick="changeQty(' + JSON.stringify(item.key) + ',1)">+</button>' +
+            '<button class="qty-btn" data-key="' + safeKey + '" data-delta="1">+</button>' +
           '</div>' +
           '<div style="display:flex;align-items:center">' +
-            '<span class="item-price">EUR' + (item.price * item.qty).toLocaleString() + '</span>' +
-            '<button class="remove-btn" onclick="removeItem(' + JSON.stringify(item.key) + ')">X</button>' +
+            '<span class="item-price">€' + (item.price * item.qty).toLocaleString() + '</span>' +
+            '<button class="remove-btn" data-key="' + safeKey + '" data-remove="1">✕</button>' +
           '</div>' +
         '</div>' +
       '</div>' +
     '</div>';
   });
   body.innerHTML = html;
+  body.onclick = function(e) {
+    var btn = e.target.closest('[data-key]');
+    if (!btn) return;
+    var key = btn.getAttribute('data-key');
+    if (btn.hasAttribute('data-remove')) {
+      removeItem(key);
+    } else {
+      changeQty(key, parseInt(btn.getAttribute('data-delta')));
+    }
+  };
   const subtotal = cart.reduce(function(s, i) { return s + i.price * i.qty; }, 0);
   const shipping = subtotal >= 300 ? 0 : 25;
-  document.getElementById('subtotal-val').textContent = 'EUR' + subtotal.toLocaleString();
-  document.getElementById('shipping-val').textContent = shipping === 0 ? 'Free' : 'EUR' + shipping;
-  document.getElementById('total-val').textContent = 'EUR' + (subtotal + shipping).toLocaleString();
+  document.getElementById('subtotal-val').textContent = '€' + subtotal.toLocaleString();
+  document.getElementById('shipping-val').textContent = shipping === 0 ? 'Free' : '€' + shipping;
+  document.getElementById('total-val').textContent = '€' + (subtotal + shipping).toLocaleString();
 }
 
 function changeQty(key, delta) {
@@ -1597,9 +1618,10 @@ function changeQty(key, delta) {
   if (!item) return;
   item.qty += delta;
   if (item.qty <= 0) cart = cart.filter(function(i) { return i.key !== key; });
+  saveCart();
   updateCartUI();
 }
-function removeItem(key) { cart = cart.filter(function(i) { return i.key !== key; }); updateCartUI(); }
+function removeItem(key) { cart = cart.filter(function(i) { return i.key !== key; }); saveCart(); updateCartUI(); }
 function openCart(e) { if (e) e.preventDefault(); document.getElementById('cart-panel').classList.add('open'); document.getElementById('cart-overlay').classList.add('open'); }
 function closeCart() { document.getElementById('cart-panel').classList.remove('open'); document.getElementById('cart-overlay').classList.remove('open'); }
 
@@ -1612,7 +1634,7 @@ function openCheckout() {
   cart.forEach(function(i){items+='<div class="order-summary-item"><span>'+i.name+' ('+i.qty+'x)</span><span>EUR'+(i.price*i.qty).toLocaleString()+'</span></div>';});
   document.getElementById('modal-body').innerHTML=
     '<div class="order-summary"><div class="order-summary-title">Order Summary</div>'+items+
-    '<div class="order-summary-item"><span>Shipping</span><span>'+(shipping===0?'Free':'EUR'+shipping)+'</span></div>'+
+    '<div class="order-summary-item"><span>Shipping</span><span>'+(shipping===0?'Free':'€'+shipping)+'</span></div>'+
     '<div class="order-summary-total"><span>Total</span><span>EUR'+total.toLocaleString()+'</span></div></div>'+
     '<div class="form-section"><div class="form-section-title">Contact</div>'+
     '<div class="form-row"><div class="form-group"><label>First Name</label><input type="text" placeholder="Maria"></div><div class="form-group"><label>Last Name</label><input type="text" placeholder="Ivanova"></div></div>'+
@@ -1633,7 +1655,7 @@ function placeOrder() {
     '<div class="success-screen"><div class="success-icon">&#10003;</div><h3>Order Confirmed!</h3>'+
     '<p>Thank you! You will receive a confirmation email with tracking details shortly.</p>'+
     '<button class="place-order-btn" style="max-width:200px;margin:0 auto" onclick="closeModal();cart=[];updateCartUI()">Continue Shopping</button></div>';
-  cart=[];updateCartUI();
+  cart=[];saveCart();updateCartUI();
 }
 
 function closeModal(){document.getElementById('modal-overlay').classList.remove('open');}
@@ -1674,7 +1696,7 @@ function openProductModal(id) {
   p.sizes.forEach(function(s, idx) {
     const opt = document.createElement('option');
     opt.value = idx;
-    opt.textContent = s + ' — EUR' + p.sizePrice[idx].toLocaleString();
+    opt.textContent = s + ' — €' + p.sizePrice[idx].toLocaleString();
     sel.appendChild(opt);
   });
 
@@ -1687,7 +1709,7 @@ function updateModalPrice() {
   const p = currentModalProduct;
   if (!p) return;
   const idx = parseInt(document.getElementById('pm-size').value);
-  document.getElementById('pm-price').textContent = 'EUR' + p.sizePrice[idx].toLocaleString();
+  document.getElementById('pm-price').textContent = '€' + p.sizePrice[idx].toLocaleString();
 }
 
 function addToCartFromModal() {
@@ -1702,6 +1724,7 @@ function addToCartFromModal() {
   btn.textContent = 'Added!';
   btn.classList.add('added');
   setTimeout(function() { btn.textContent = 'Add to Cart'; btn.classList.remove('added'); }, 1800);
+  saveCart();
   updateCartUI();
   showToast(p.name + ' added to cart');
 }
